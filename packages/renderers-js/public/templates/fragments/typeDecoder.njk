@@ -1,6 +1,39 @@
 {% import "macros.njk" as macros %}
 
 {{ macros.docblock(docs) }}
+{% if isStructType %}
+export function {{ decoderFunction }}(options?: DecoderOptions): Decoder<{{ strictName }}> {
+  const fields: Array<readonly [string, Decoder<any>]> = {{ fieldsArrayRender }};
+  
+  if (options?.lazy) {
+    return createDecoder({
+      read(bytes: ReadonlyUint8Array | Uint8Array, offset: number): [{{ strictName }}, number] {
+        const result: any = {};
+        let currentOffset = offset;
+        
+        for (const [fieldName, decoder] of fields) {
+          try {
+            if (currentOffset >= bytes.length) {
+              continue;
+            }
+            
+            const [value, newOffset] = decoder.read(bytes, currentOffset);
+            result[fieldName] = value;
+            currentOffset = newOffset;
+          } catch (error) {
+            break;
+          }
+        }
+        
+        return [result as {{ strictName }}, currentOffset];
+      }
+    });
+  }
+  
+  return {{ manifest.decoder.render }}{% if useTypeCast %} as {{ decoderType }}<{{ strictName }}>{% endif %};
+}
+{% else %}
 export function {{ decoderFunction }}(): {{ decoderType }}<{{ strictName }}> {
   return {{ manifest.decoder.render }}{% if useTypeCast %} as {{ decoderType }}<{{ strictName }}>{% endif %};
 }
+{% endif %}

@@ -1,4 +1,4 @@
-import type { TypeNode } from '@codama/nodes';
+import { isNode, type TypeNode } from '@codama/nodes';
 
 import { GlobalFragmentScope } from '../getRenderMapVisitor';
 import { TypeManifest } from '../TypeManifest';
@@ -17,8 +17,15 @@ export function getTypeCodecFragment(
         size: number | null;
     },
 ): Fragment {
-    const { name, manifest, nameApi } = scope;
-    const codecType = typeof scope.size === 'number' ? 'FixedSizeCodec' : 'Codec';
+    const { name, manifest, nameApi, node } = scope;
+    // Check if this is an account struct that supports lazy decoding
+    const isStructType = isNode(node, 'structTypeNode');
+    const isAccountDecoder = !name.includes('InstructionData');
+    const supportsLazyDecoding = isStructType && isAccountDecoder;
+    
+    // If lazy decoding is supported, the codec is always variable-size
+    const codecType = supportsLazyDecoding ? 'Codec' : (typeof scope.size === 'number' ? 'FixedSizeCodec' : 'Codec');
+    
     return mergeFragments(
         [
             getTypeEncoderFragment({ ...scope, docs: scope.encoderDocs }),
@@ -32,6 +39,7 @@ export function getTypeCodecFragment(
                 looseName: nameApi.dataArgsType(name),
                 manifest,
                 strictName: nameApi.dataType(name),
+                supportsLazyDecoding,
             }).addImports('solanaCodecsCore', [`type ${codecType}`, 'combineCodec']),
         ],
         renders => renders.join('\n\n'),

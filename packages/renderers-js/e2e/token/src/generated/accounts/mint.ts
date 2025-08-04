@@ -10,6 +10,7 @@ import {
   assertAccountExists,
   assertAccountsExist,
   combineCodec,
+  createDecoder,
   decodeAccount,
   fetchEncodedAccount,
   fetchEncodedAccounts,
@@ -29,17 +30,19 @@ import {
   getU8Encoder,
   type Account,
   type Address,
+  type Codec,
+  type Decoder,
   type EncodedAccount,
   type FetchAccountConfig,
   type FetchAccountsConfig,
-  type FixedSizeCodec,
-  type FixedSizeDecoder,
   type FixedSizeEncoder,
   type MaybeAccount,
   type MaybeEncodedAccount,
   type Option,
   type OptionOrNullable,
+  type ReadonlyUint8Array,
 } from '@solana/kit';
+import { type DecoderOptions } from '../shared';
 
 export type Mint = {
   /**
@@ -97,7 +100,55 @@ export function getMintEncoder(): FixedSizeEncoder<MintArgs> {
   ]);
 }
 
-export function getMintDecoder(): FixedSizeDecoder<Mint> {
+export function getMintDecoder(options?: DecoderOptions): Decoder<Mint> {
+  const fields: Array<readonly [string, Decoder<any>]> = [
+    [
+      'mintAuthority',
+      getOptionDecoder(getAddressDecoder(), {
+        prefix: getU32Decoder(),
+        noneValue: 'zeroes',
+      }),
+    ],
+    ['supply', getU64Decoder()],
+    ['decimals', getU8Decoder()],
+    ['isInitialized', getBooleanDecoder()],
+    [
+      'freezeAuthority',
+      getOptionDecoder(getAddressDecoder(), {
+        prefix: getU32Decoder(),
+        noneValue: 'zeroes',
+      }),
+    ],
+  ];
+
+  if (options?.lazy) {
+    return createDecoder({
+      read(
+        bytes: ReadonlyUint8Array | Uint8Array,
+        offset: number
+      ): [Mint, number] {
+        const result: any = {};
+        let currentOffset = offset;
+
+        for (const [fieldName, decoder] of fields) {
+          try {
+            if (currentOffset >= bytes.length) {
+              continue;
+            }
+
+            const [value, newOffset] = decoder.read(bytes, currentOffset);
+            result[fieldName] = value;
+            currentOffset = newOffset;
+          } catch (error) {
+            break;
+          }
+        }
+
+        return [result as Mint, currentOffset];
+      },
+    });
+  }
+
   return getStructDecoder([
     [
       'mintAuthority',
@@ -119,29 +170,32 @@ export function getMintDecoder(): FixedSizeDecoder<Mint> {
   ]);
 }
 
-export function getMintCodec(): FixedSizeCodec<MintArgs, Mint> {
+export function getMintCodec(): Codec<MintArgs, Mint> {
   return combineCodec(getMintEncoder(), getMintDecoder());
 }
 
 export function decodeMint<TAddress extends string = string>(
-  encodedAccount: EncodedAccount<TAddress>
+  encodedAccount: EncodedAccount<TAddress>,
+  options?: DecoderOptions
 ): Account<Mint, TAddress>;
 export function decodeMint<TAddress extends string = string>(
-  encodedAccount: MaybeEncodedAccount<TAddress>
+  encodedAccount: MaybeEncodedAccount<TAddress>,
+  options?: DecoderOptions
 ): MaybeAccount<Mint, TAddress>;
 export function decodeMint<TAddress extends string = string>(
-  encodedAccount: EncodedAccount<TAddress> | MaybeEncodedAccount<TAddress>
+  encodedAccount: EncodedAccount<TAddress> | MaybeEncodedAccount<TAddress>,
+  options?: DecoderOptions
 ): Account<Mint, TAddress> | MaybeAccount<Mint, TAddress> {
   return decodeAccount(
     encodedAccount as MaybeEncodedAccount<TAddress>,
-    getMintDecoder()
+    getMintDecoder(options)
   );
 }
 
 export async function fetchMint<TAddress extends string = string>(
   rpc: Parameters<typeof fetchEncodedAccount>[0],
   address: Address<TAddress>,
-  config?: FetchAccountConfig
+  config?: FetchAccountConfig & DecoderOptions
 ): Promise<Account<Mint, TAddress>> {
   const maybeAccount = await fetchMaybeMint(rpc, address, config);
   assertAccountExists(maybeAccount);
@@ -151,16 +205,16 @@ export async function fetchMint<TAddress extends string = string>(
 export async function fetchMaybeMint<TAddress extends string = string>(
   rpc: Parameters<typeof fetchEncodedAccount>[0],
   address: Address<TAddress>,
-  config?: FetchAccountConfig
+  config?: FetchAccountConfig & DecoderOptions
 ): Promise<MaybeAccount<Mint, TAddress>> {
   const maybeAccount = await fetchEncodedAccount(rpc, address, config);
-  return decodeMint(maybeAccount);
+  return decodeMint(maybeAccount, { lazy: config?.lazy });
 }
 
 export async function fetchAllMint(
   rpc: Parameters<typeof fetchEncodedAccounts>[0],
   addresses: Array<Address>,
-  config?: FetchAccountsConfig
+  config?: FetchAccountsConfig & DecoderOptions
 ): Promise<Account<Mint>[]> {
   const maybeAccounts = await fetchAllMaybeMint(rpc, addresses, config);
   assertAccountsExist(maybeAccounts);
@@ -170,10 +224,12 @@ export async function fetchAllMint(
 export async function fetchAllMaybeMint(
   rpc: Parameters<typeof fetchEncodedAccounts>[0],
   addresses: Array<Address>,
-  config?: FetchAccountsConfig
+  config?: FetchAccountsConfig & DecoderOptions
 ): Promise<MaybeAccount<Mint>[]> {
   const maybeAccounts = await fetchEncodedAccounts(rpc, addresses, config);
-  return maybeAccounts.map((maybeAccount) => decodeMint(maybeAccount));
+  return maybeAccounts.map((maybeAccount) =>
+    decodeMint(maybeAccount, { lazy: config?.lazy })
+  );
 }
 
 export function getMintSize(): number {

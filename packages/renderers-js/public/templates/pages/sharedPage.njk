@@ -78,6 +78,18 @@ export type InstructionWithByteDelta = {
 };
 
 /**
+ * Options for configuring decoder behavior.
+ * @category Decoder
+ */
+export type DecoderOptions = {
+  /**
+   * When true, the decoder will read fields lazily until it runs out of data,
+   * instead of failing when data is incomplete. Missing fields will be undefined.
+   */
+  lazy?: boolean;
+};
+
+/**
 * Get account metas and signers from resolved accounts.
 * @internal
 */

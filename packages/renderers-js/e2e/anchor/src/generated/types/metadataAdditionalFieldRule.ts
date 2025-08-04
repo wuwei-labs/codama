@@ -10,6 +10,7 @@ import {
   addDecoderSizePrefix,
   addEncoderSizePrefix,
   combineCodec,
+  createDecoder,
   getOptionDecoder,
   getOptionEncoder,
   getStructDecoder,
@@ -23,6 +24,7 @@ import {
   type Encoder,
   type Option,
   type OptionOrNullable,
+  type ReadonlyUint8Array,
 } from '@solana/kit';
 import {
   getMetadataAdditionalFieldRestrictionDecoder,
@@ -30,6 +32,7 @@ import {
   type MetadataAdditionalFieldRestriction,
   type MetadataAdditionalFieldRestrictionArgs,
 } from '.';
+import { type DecoderOptions } from '../shared';
 
 /**
  * Enforces rules on a single additional field in the mint metadata.
@@ -56,7 +59,45 @@ export function getMetadataAdditionalFieldRuleEncoder(): Encoder<MetadataAdditio
   ]);
 }
 
-export function getMetadataAdditionalFieldRuleDecoder(): Decoder<MetadataAdditionalFieldRule> {
+export function getMetadataAdditionalFieldRuleDecoder(
+  options?: DecoderOptions
+): Decoder<MetadataAdditionalFieldRule> {
+  const fields: Array<readonly [string, Decoder<any>]> = [
+    ['field', addDecoderSizePrefix(getUtf8Decoder(), getU32Decoder())],
+    [
+      'valueRestrictions',
+      getOptionDecoder(getMetadataAdditionalFieldRestrictionDecoder()),
+    ],
+  ];
+
+  if (options?.lazy) {
+    return createDecoder({
+      read(
+        bytes: ReadonlyUint8Array | Uint8Array,
+        offset: number
+      ): [MetadataAdditionalFieldRule, number] {
+        const result: any = {};
+        let currentOffset = offset;
+
+        for (const [fieldName, decoder] of fields) {
+          try {
+            if (currentOffset >= bytes.length) {
+              continue;
+            }
+
+            const [value, newOffset] = decoder.read(bytes, currentOffset);
+            result[fieldName] = value;
+            currentOffset = newOffset;
+          } catch (error) {
+            break;
+          }
+        }
+
+        return [result as MetadataAdditionalFieldRule, currentOffset];
+      },
+    });
+  }
+
   return getStructDecoder([
     ['field', addDecoderSizePrefix(getUtf8Decoder(), getU32Decoder())],
     [

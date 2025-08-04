@@ -10,6 +10,7 @@ import {
   assertAccountExists,
   assertAccountsExist,
   combineCodec,
+  createDecoder,
   decodeAccount,
   fetchEncodedAccount,
   fetchEncodedAccounts,
@@ -25,17 +26,19 @@ import {
   getU64Encoder,
   type Account,
   type Address,
+  type Codec,
+  type Decoder,
   type EncodedAccount,
   type FetchAccountConfig,
   type FetchAccountsConfig,
-  type FixedSizeCodec,
-  type FixedSizeDecoder,
   type FixedSizeEncoder,
   type MaybeAccount,
   type MaybeEncodedAccount,
   type Option,
   type OptionOrNullable,
+  type ReadonlyUint8Array,
 } from '@solana/kit';
+import { type DecoderOptions } from '../shared';
 import {
   getAccountStateDecoder,
   getAccountStateEncoder,
@@ -128,7 +131,64 @@ export function getTokenEncoder(): FixedSizeEncoder<TokenArgs> {
   ]);
 }
 
-export function getTokenDecoder(): FixedSizeDecoder<Token> {
+export function getTokenDecoder(options?: DecoderOptions): Decoder<Token> {
+  const fields: Array<readonly [string, Decoder<any>]> = [
+    ['mint', getAddressDecoder()],
+    ['owner', getAddressDecoder()],
+    ['amount', getU64Decoder()],
+    [
+      'delegate',
+      getOptionDecoder(getAddressDecoder(), {
+        prefix: getU32Decoder(),
+        noneValue: 'zeroes',
+      }),
+    ],
+    ['state', getAccountStateDecoder()],
+    [
+      'isNative',
+      getOptionDecoder(getU64Decoder(), {
+        prefix: getU32Decoder(),
+        noneValue: 'zeroes',
+      }),
+    ],
+    ['delegatedAmount', getU64Decoder()],
+    [
+      'closeAuthority',
+      getOptionDecoder(getAddressDecoder(), {
+        prefix: getU32Decoder(),
+        noneValue: 'zeroes',
+      }),
+    ],
+  ];
+
+  if (options?.lazy) {
+    return createDecoder({
+      read(
+        bytes: ReadonlyUint8Array | Uint8Array,
+        offset: number
+      ): [Token, number] {
+        const result: any = {};
+        let currentOffset = offset;
+
+        for (const [fieldName, decoder] of fields) {
+          try {
+            if (currentOffset >= bytes.length) {
+              continue;
+            }
+
+            const [value, newOffset] = decoder.read(bytes, currentOffset);
+            result[fieldName] = value;
+            currentOffset = newOffset;
+          } catch (error) {
+            break;
+          }
+        }
+
+        return [result as Token, currentOffset];
+      },
+    });
+  }
+
   return getStructDecoder([
     ['mint', getAddressDecoder()],
     ['owner', getAddressDecoder()],
@@ -159,29 +219,32 @@ export function getTokenDecoder(): FixedSizeDecoder<Token> {
   ]);
 }
 
-export function getTokenCodec(): FixedSizeCodec<TokenArgs, Token> {
+export function getTokenCodec(): Codec<TokenArgs, Token> {
   return combineCodec(getTokenEncoder(), getTokenDecoder());
 }
 
 export function decodeToken<TAddress extends string = string>(
-  encodedAccount: EncodedAccount<TAddress>
+  encodedAccount: EncodedAccount<TAddress>,
+  options?: DecoderOptions
 ): Account<Token, TAddress>;
 export function decodeToken<TAddress extends string = string>(
-  encodedAccount: MaybeEncodedAccount<TAddress>
+  encodedAccount: MaybeEncodedAccount<TAddress>,
+  options?: DecoderOptions
 ): MaybeAccount<Token, TAddress>;
 export function decodeToken<TAddress extends string = string>(
-  encodedAccount: EncodedAccount<TAddress> | MaybeEncodedAccount<TAddress>
+  encodedAccount: EncodedAccount<TAddress> | MaybeEncodedAccount<TAddress>,
+  options?: DecoderOptions
 ): Account<Token, TAddress> | MaybeAccount<Token, TAddress> {
   return decodeAccount(
     encodedAccount as MaybeEncodedAccount<TAddress>,
-    getTokenDecoder()
+    getTokenDecoder(options)
   );
 }
 
 export async function fetchToken<TAddress extends string = string>(
   rpc: Parameters<typeof fetchEncodedAccount>[0],
   address: Address<TAddress>,
-  config?: FetchAccountConfig
+  config?: FetchAccountConfig & DecoderOptions
 ): Promise<Account<Token, TAddress>> {
   const maybeAccount = await fetchMaybeToken(rpc, address, config);
   assertAccountExists(maybeAccount);
@@ -191,16 +254,16 @@ export async function fetchToken<TAddress extends string = string>(
 export async function fetchMaybeToken<TAddress extends string = string>(
   rpc: Parameters<typeof fetchEncodedAccount>[0],
   address: Address<TAddress>,
-  config?: FetchAccountConfig
+  config?: FetchAccountConfig & DecoderOptions
 ): Promise<MaybeAccount<Token, TAddress>> {
   const maybeAccount = await fetchEncodedAccount(rpc, address, config);
-  return decodeToken(maybeAccount);
+  return decodeToken(maybeAccount, { lazy: config?.lazy });
 }
 
 export async function fetchAllToken(
   rpc: Parameters<typeof fetchEncodedAccounts>[0],
   addresses: Array<Address>,
-  config?: FetchAccountsConfig
+  config?: FetchAccountsConfig & DecoderOptions
 ): Promise<Account<Token>[]> {
   const maybeAccounts = await fetchAllMaybeToken(rpc, addresses, config);
   assertAccountsExist(maybeAccounts);
@@ -210,10 +273,12 @@ export async function fetchAllToken(
 export async function fetchAllMaybeToken(
   rpc: Parameters<typeof fetchEncodedAccounts>[0],
   addresses: Array<Address>,
-  config?: FetchAccountsConfig
+  config?: FetchAccountsConfig & DecoderOptions
 ): Promise<MaybeAccount<Token>[]> {
   const maybeAccounts = await fetchEncodedAccounts(rpc, addresses, config);
-  return maybeAccounts.map((maybeAccount) => decodeToken(maybeAccount));
+  return maybeAccounts.map((maybeAccount) =>
+    decodeToken(maybeAccount, { lazy: config?.lazy })
+  );
 }
 
 export function getTokenSize(): number {

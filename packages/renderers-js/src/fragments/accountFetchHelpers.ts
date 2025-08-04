@@ -1,4 +1,4 @@
-import { AccountNode } from '@codama/nodes';
+import { AccountNode, isNode, resolveNestedTypeNode } from '@codama/nodes';
 import { getLastNodeFromPath, NodePath } from '@codama/visitors-core';
 
 import type { GlobalFragmentScope } from '../getRenderMapVisitor';
@@ -17,18 +17,26 @@ export function getAccountFetchHelpersFragment(
     const accountTypeFragment = hasCustomData
         ? typeManifest.strictType.clone()
         : fragment(nameApi.dataType(accountNode.name));
+    const decoderFunctionName = hasCustomData
+        ? typeManifest.decoder.render
+        : nameApi.decoderFunction(accountNode.name);
     const decoderFunctionFragment = hasCustomData
         ? typeManifest.decoder.clone()
-        : fragment(`${nameApi.decoderFunction(accountNode.name)}()`);
+        : fragment(decoderFunctionName);
+    
+    // Check if the account data is a struct type (it should always be for accounts)
+    const resolvedData = resolveNestedTypeNode(accountNode.data);
+    const isStructType = isNode(resolvedData, 'structTypeNode');
 
-    return fragmentFromTemplate('accountFetchHelpers.njk', {
+    const fetchHelpersFragment = fragmentFromTemplate('accountFetchHelpers.njk', {
         accountType: accountTypeFragment.render,
         decodeFunction: nameApi.accountDecodeFunction(accountNode.name),
-        decoderFunction: decoderFunctionFragment.render,
+        decoderFunction: decoderFunctionName,
         fetchAllFunction: nameApi.accountFetchAllFunction(accountNode.name),
         fetchAllMaybeFunction: nameApi.accountFetchAllMaybeFunction(accountNode.name),
         fetchFunction: nameApi.accountFetchFunction(accountNode.name),
         fetchMaybeFunction: nameApi.accountFetchMaybeFunction(accountNode.name),
+        isStructDecoder: isStructType && !hasCustomData,
     })
         .mergeImportsWith(accountTypeFragment, decoderFunctionFragment)
         .addImports('solanaAddresses', ['type Address'])
@@ -45,4 +53,11 @@ export function getAccountFetchHelpersFragment(
             'type MaybeAccount',
             'type MaybeEncodedAccount',
         ]);
+    
+    // Only add DecoderOptions import for struct decoders
+    if (isStructType && !hasCustomData) {
+        fetchHelpersFragment.addImports('shared', ['type DecoderOptions']);
+    }
+    
+    return fetchHelpersFragment;
 }
