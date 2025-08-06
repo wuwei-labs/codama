@@ -42,16 +42,16 @@
         "test:types": "zx ../../node_modules/@codama/internals/scripts/test-types.mjs"
     },
     "dependencies": {
-        "@codama/errors": "workspace:*",
-        "@codama/nodes": "workspace:*",
-        "@codama/renderers-core": "workspace:*",
-        "@codama/visitors-core": "workspace:*",
+        "@codama/errors": "^1.3.1",
+        "@codama/nodes": "^1.3.1",
+        "@codama/renderers-core": "^1.0.17",
+        "@codama/visitors-core": "^1.3.1",
         "@solana/codecs-strings": "^2.3.0",
         "nunjucks": "^3.2.4",
         "prettier": "^3.6.2"
     },
     "devDependencies": {
-        "@codama/nodes-from-anchor": "workspace:*",
+        "@codama/nodes-from-anchor": "^1.2.3",
         "@types/nunjucks": "^3.2.6"
     },
     "license": "MIT",
